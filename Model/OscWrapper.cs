@@ -13,14 +13,34 @@ namespace VirtualSeat.DownlinkLauncher.Model
     {
         private readonly ILogger _logger;
         private readonly OscReceiver _server;
+        internal const int MessageBufferSize = 0x10000;
+        internal const int MaxPacketSize = 0x10000;
 
         public OscWrapper(IPEndPoint receiveEndpoint, ILogger logger)
         {
             _logger = logger;
-            _server = new OscReceiver(IPAddress.Any, receiveEndpoint.Address, receiveEndpoint.Port);
+            bool isMulticast = IsMulticast(receiveEndpoint.Address);
+            if (isMulticast)
+            {
+                _server = new OscReceiver(IPAddress.Any, receiveEndpoint.Address, receiveEndpoint.Port, MaxPacketSize, MessageBufferSize);
+            }
+            else
+            {
+                _server = new OscReceiver(receiveEndpoint.Address, receiveEndpoint.Port, MaxPacketSize, MessageBufferSize);
+            }
             _server.Connect();
-            _logger.LogInformation("Listening for OSC commands on {0}", receiveEndpoint);
+            _logger.LogInformation("Listening for OSC commands on {0} address {1} with message buffer size of {2}kB", isMulticast ? "multicast" : "unicast", receiveEndpoint, MessageBufferSize / 1024);
             Task.Run(() => ListenLoop());
+        }
+
+        private static bool IsMulticast(IPAddress address)
+        {
+            if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                return address.IsIPv6Multicast;
+            }
+            byte[] bytes = address.GetAddressBytes();
+            return bytes[0] > 223 && bytes[0] < 240;
         }
 
         private void ListenLoop()
